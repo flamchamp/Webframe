@@ -1,12 +1,20 @@
 from flask import Flask, render_template, url_for, flash, redirect
 from forms import RegistrationForm
 from flask_sqlalchemy import SQLAlchemy
+from speech import printWAV
+import time, random, threading
+from turbo_flask import Turbo
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '87cf84f22b2e953029103bea6c3e2f57'
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 db = SQLAlchemy(app)
+
+interval=10
+FILE_NAME = "play_too_much.wav"
+turbo = Turbo(app)
 
 class User(db.Model):
   id = db.Column(db.Integer, primary_key=True)
@@ -35,6 +43,45 @@ def register():
       flash(f'Account created for {form.username.data}!', 'success')
       return redirect(url_for('hello_world')) # if so - send to home page
     return render_template('register.html', title='Register', form=form)
+
+@app.route("/captions")
+def captions():
+    TITLE = "audio_file_name"
+    return render_template('captions.html', songName=TITLE, file=FILE_NAME)
+
+@app.before_first_request
+def before_first_request():
+    #resetting time stamp file to 0
+    file = open("pos.txt","w") 
+    file.write(str(0))
+    file.close()
+
+    #starting thread that will time updates
+    threading.Thread(target=update_captions, daemon=True).start()
+
+@app.context_processor
+def inject_load():
+    # getting previous time stamp
+    file = open("pos.txt","r")
+    pos = int(file.read())
+    file.close()
+
+    # writing next time stamp
+    file = open("pos.txt","w")
+    file.write(str(pos+interval))
+    file.close()
+
+    #returning captions
+    return {'caption':printWAV(FILE_NAME, pos=pos, clip=interval)}
+
+def update_captions():
+    with app.app_context():
+        while True:
+            # timing thread waiting for the interval
+            time.sleep(interval)
+
+            # forcefully updating captionsPane with caption
+            turbo.push(turbo.replace(render_template('captionsPane.html'), 'load'))
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0")
